@@ -1,18 +1,22 @@
 import threading
 import queue
+import time
 import cv2
+
+TARGET_FPS = 30
+_FRAME_INTERVAL = 1.0 / TARGET_FPS   # ~0.0333s entre frames
 
 
 class VideoCaptureThread(threading.Thread):
-    """Thread 1 — captura frames a velocidad nativa y los encola para display."""
+    """Thread 1 — captura a ≤30fps reales y distribuye a display_queue y ocr_queue."""
 
     def __init__(self, video_path: str,
                  display_queue: queue.Queue,
                  ocr_queue: queue.Queue):
         super().__init__(daemon=True)
         self.video_path = video_path
-        self.display_queue = display_queue   # para el UI (máx 4 frames)
-        self.ocr_queue = ocr_queue           # para el OCR thread (máx 2 frames)
+        self.display_queue = display_queue
+        self.ocr_queue = ocr_queue
         self._stop_event = threading.Event()
 
     def run(self):
@@ -21,6 +25,8 @@ class VideoCaptureThread(threading.Thread):
             cap = cv2.VideoCapture(0)
 
         frame_count = 0
+        last_frame_time = time.time()
+
         while not self._stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
@@ -32,13 +38,21 @@ class VideoCaptureThread(threading.Thread):
 
             frame_count += 1
 
-            # Display queue: todos los frames (UI los consume a ~60fps via after(16))
-            if self.display_queue.qsize() < 4:
-                self.display_queue.put(frame)
+            # ── Limitar a TARGET_FPS reales ────────────────────────
+            now = time.time()
+            elapsed = now - last_frame_time
+            sleep_needed = _FRAME_INTERVAL - elapsed
+            if sleep_needed > 0:
+                time.sleep(sleep_needed)
+            last_frame_time = time.time()
 
-            # OCR queue: 1 de cada 4 frames para no saturar la GPU
-            if frame_count % 4 == 0 and self.ocr_queue.qsize() < 2:
-                self.ocr_queue.put(frame)
+            # ── Display queue (maxsize=10): nunca bloquear ─────────
+            if not self.display_queue.full():
+                self.display_queue.put_nowait(frame)
+
+            # ── OCR queue (maxsize=2): 1 de cada 4 frames ─────────
+            if frame_count % 4 == 0 and not self.ocr_queue.full():
+                self.ocr_queue.put_nowait(frame)
 
         cap.release()
 

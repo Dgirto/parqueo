@@ -37,7 +37,7 @@ class MainWindow(ctk.CTk):
         # ── Thread 1: display frames ───────────────────────────────
         # ── Thread 2: OCR frames ──────────────────────────────────
         # ── Thread 3 (UI): after(16) loop ─────────────────────────
-        self._display_queue: queue.Queue = queue.Queue(maxsize=4)
+        self._display_queue: queue.Queue = queue.Queue(maxsize=10)
         self._ocr_queue: queue.Queue = queue.Queue(maxsize=2)
         self._result_queue: queue.Queue = queue.Queue()
 
@@ -98,7 +98,7 @@ class MainWindow(ctk.CTk):
         self.active_vehicles = ActiveVehicles(right_col)
         self.active_vehicles.grid(row=1, column=0, sticky="nsew")
 
-        self.activity_table = ActivityTable(self)
+        self.activity_table = ActivityTable(self, on_clear=self._clear_bd)
         self.activity_table.grid(row=2, column=1, columnspan=2,
                                  sticky="nsew", padx=(8, 8), pady=(0, 8))
 
@@ -115,12 +115,12 @@ class MainWindow(ctk.CTk):
     # ── Thread 3: UI update loop (~60fps) ─────────────────────────
 
     def _update_loop(self):
-        # Consume one display frame → VideoPanel
+        # Consume one display frame → VideoPanel (nunca bloquea)
         try:
             frame = self._display_queue.get_nowait()
             self.video_panel.update_frame(frame)
         except queue.Empty:
-            pass
+            pass   # queue vacía: reschedula normalmente sin hacer nada
 
         # Drain all OCR results → business logic + panels
         while True:
@@ -182,6 +182,14 @@ class MainWindow(ctk.CTk):
         result = self.logic.procesar_placa(placa)
         if result["accion"] == "SALIDA":
             self._handle_result(result)
+
+    # ── Clear BD ───────────────────────────────────────────────────
+
+    def _clear_bd(self):
+        self.db.clear_all_tickets()
+        self.activity_table.refresh([])
+        self.active_vehicles.refresh([])
+        self._refresh_header_metrics()
 
     # ── Navigation ─────────────────────────────────────────────────
 
