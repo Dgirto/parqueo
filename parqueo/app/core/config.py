@@ -3,7 +3,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DB_PATH = os.path.join(BASE_DIR, "data", "parqueo.db")
-VIDEO_PATH = os.path.join(BASE_DIR, "assets", "videos", "test.mp4")
+VIDEO_PATH = r"C:/Users/Alumno-ETI/Desktop/parqueo/parqueo/assets/videos/test.mp4"
 SCHEMA_PATH = os.path.join(BASE_DIR, "app", "database", "schema.sql")
 
 TARIFA_ID_DEFAULT = 1
