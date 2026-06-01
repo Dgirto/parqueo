@@ -1,3 +1,4 @@
+import re
 import cv2
 import numpy as np
 from typing import List, Tuple
@@ -31,7 +32,7 @@ class PlateDetector:
             print(f"[OCR-RAW] readtext devolvió {len(results)} resultado(s): {results}")
             plates = []
             for (_bbox, text, confidence) in results:
-                cleaned = text.upper().replace(" ", "").replace(".", "")
+                cleaned = re.sub(r'[^A-Z0-9-]', '', text.upper())
                 plates.append((cleaned, float(confidence)))
             return plates
         except Exception as e:
