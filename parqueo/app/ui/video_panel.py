@@ -125,7 +125,7 @@ class VideoPanel(ctk.CTkFrame):
         al tamaño real del frame recibido y dibuja el overlay semitransparente.
         """
         fh, fw = frame.shape[:2]
-        roi_w, roi_h = 597, 336   # dimensiones de referencia de las ROI en config
+        roi_w, roi_h = 1280, 720   # ROI definidas en coordenadas del frame original
 
         def scale(roi):
             x1, y1, x2, y2 = roi
