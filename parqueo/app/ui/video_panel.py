@@ -14,7 +14,7 @@ class VideoPanel(ctk.CTkFrame):
         kwargs.setdefault("border_color", COLORS["border_bright"])
         super().__init__(master, **kwargs)
 
-        self.current_image = None   # mantiene referencia para evitar GC
+        self._photo = None          # referencia anti-GC (doble: self + label.image)
         self._frame_times: list[float] = []
         self._panel_w = 0
         self._panel_h = 0
@@ -74,26 +74,41 @@ class VideoPanel(ctk.CTkFrame):
         self._frame_times = [t for t in self._frame_times if now - t <= 1.0]
         self._frame_times.append(now)
 
-        # Si el panel aún no tiene tamaño, leer directamente del widget
-        w = self._panel_w or max(self._video_label.winfo_width(), 320)
-        h = self._panel_h or max(self._video_label.winfo_height(), 240)
+        # Tamaño real del label (con fallback si aún no ha sido dibujado)
+        w = self._video_label.winfo_width()
+        h = self._video_label.winfo_height()
+        if w < 10:
+            w = self._panel_w or 640
+        if h < 10:
+            h = self._panel_h or 480
 
         try:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img_h, img_w = frame.shape[:2]
-            scale = min(w / img_w, h / img_h)
-            new_w = max(1, int(img_w * scale))
-            new_h = max(1, int(img_h * scale))
+            img_h_orig, img_w_orig = frame.shape[:2]
 
-            # PIL resize + ImageTk directo (sin overhead de CTkImage)
-            pil_resized = Image.fromarray(rgb).resize((new_w, new_h),
-                                                      Image.BILINEAR)
-            photo = ImageTk.PhotoImage(image=pil_resized)
-            self._video_label.configure(image=photo)
-            self.current_image = photo   # evitar GC
+            # 1. BGR → RGB
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # 2. Redimensionar con cv2 (más rápido que PIL para resize)
+            scale = min(w / img_w_orig, h / img_h_orig)
+            new_w = max(1, int(img_w_orig * scale))
+            new_h = max(1, int(img_h_orig * scale))
+            rgb_resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+            # 3. numpy array → PIL Image
+            pil_img = Image.fromarray(rgb_resized)
+
+            # 4. PIL Image → ImageTk.PhotoImage
+            photo = ImageTk.PhotoImage(pil_img)
+
+            # 5. Guardar referencia (CRÍTICO: evita que el GC destruya la imagen)
+            self._photo = photo
+
+            # 6. Asignar al label (doble referencia anti-GC)
+            self._video_label.configure(image=self._photo)
+            self._video_label.image = self._photo
 
             self._overlay_lbl.configure(
-                text=f"{img_w}×{img_h}  →  {new_w}×{new_h}  ·  OpenCV/PIL")
+                text=f"{img_w_orig}×{img_h_orig}  →  {new_w}×{new_h}  ·  OpenCV/PIL")
         except Exception:
             pass
 
