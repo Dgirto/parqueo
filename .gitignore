@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SmartPark runtime artifacts
+parqueo/data/*.db
+parqueo/data/*.db-journal
+parqueo/data/*.db-shm
+parqueo/data/*.db-wal
