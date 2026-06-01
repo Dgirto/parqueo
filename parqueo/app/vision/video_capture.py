@@ -16,14 +16,21 @@ class VideoCaptureThread(threading.Thread):
             # Fall back to webcam index 0 if the file is unavailable
             cap = cv2.VideoCapture(0)
 
+        frame_count = 0
         while not self._stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
                 # Restart video from the beginning
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                frame_count = 0
                 ret, frame = cap.read()
                 if not ret:
                     break
+
+            frame_count += 1
+            # Send 1 of every 3 frames to keep the UI thread responsive
+            if frame_count % 3 != 0:
+                continue
 
             # Keep the queue shallow to avoid memory bloat
             if self.frame_queue.qsize() < 5:
