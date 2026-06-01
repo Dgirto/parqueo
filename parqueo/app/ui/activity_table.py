@@ -15,15 +15,16 @@ _MAX_ROWS = 50
 
 
 class ActivityTable(ctk.CTkFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, on_clear=None, **kwargs):
         kwargs.setdefault("fg_color", COLORS["bg_card"])
         kwargs.setdefault("corner_radius", RADIUS["card"])
         super().__init__(master, **kwargs)
 
         self._after_jobs = []
         self._row_frames: list[ctk.CTkFrame] = []
+        self._on_clear = on_clear
 
-        # ── Column headers ─────────────────────────────────────────
+        # ── Column headers + Limpiar BD button ────────────────────
         hdr = ctk.CTkFrame(self, fg_color="#14161E", corner_radius=0, height=32)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
@@ -36,6 +37,17 @@ class ActivityTable(ctk.CTkFrame):
             if i < len(_COLS) - 1:
                 ctk.CTkFrame(hdr, width=1, height=20, corner_radius=0,
                              fg_color=COLORS["border"]).pack(side="left", padx=2)
+
+        ctk.CTkButton(
+            hdr, text="🗑  Limpiar BD",
+            width=110, height=22,
+            font=FONTS["small"],
+            fg_color=COLORS["red_dim"],
+            hover_color=COLORS["red"],
+            text_color=COLORS["text_primary"],
+            corner_radius=RADIUS["badge"],
+            command=self._confirm_clear,
+        ).pack(side="right", padx=10)
 
         # ── Scroll body ────────────────────────────────────────────
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent",
@@ -146,3 +158,38 @@ class ActivityTable(ctk.CTkFrame):
             row.pack(fill="x", pady=1, before=self._row_frames[0])
 
         self._row_frames.insert(0 if index == 0 else len(self._row_frames), row)
+
+    def _confirm_clear(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Confirmar")
+        dialog.geometry("320x140")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.configure(fg_color=COLORS["bg_card"])
+
+        ctk.CTkLabel(dialog, text="¿Eliminar todos los tickets?",
+                     font=FONTS["body_bold"],
+                     text_color=COLORS["text_primary"]).pack(pady=(24, 4))
+        ctk.CTkLabel(dialog, text="Esta acción no se puede deshacer.",
+                     font=FONTS["small"],
+                     text_color=COLORS["text_secondary"]).pack()
+
+        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_row.pack(pady=16)
+
+        ctk.CTkButton(btn_row, text="Cancelar", width=110,
+                      fg_color=COLORS["border"],
+                      hover_color=COLORS["bg_row_hover"],
+                      text_color=COLORS["text_secondary"],
+                      command=dialog.destroy).pack(side="left", padx=8)
+
+        def _do_clear():
+            dialog.destroy()
+            if self._on_clear:
+                self._on_clear()
+
+        ctk.CTkButton(btn_row, text="Eliminar", width=110,
+                      fg_color=COLORS["red"],
+                      hover_color=COLORS["red_dim"],
+                      text_color=COLORS["text_primary"],
+                      command=_do_clear).pack(side="left", padx=8)
