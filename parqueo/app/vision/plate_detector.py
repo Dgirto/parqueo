@@ -28,18 +28,24 @@ class PlateDetector:
         cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
         return cleaned
 
-    def detect(self, frame: np.ndarray) -> List[Tuple[str, float]]:
+    def detect(self, frame: np.ndarray) -> List[Tuple[str, float, int]]:
+        """
+        Returns list of (text, confidence, cx) where cx is the horizontal
+        center of the bounding box in frame coordinates.
+        """
         if self.reader is None:
             return []
 
         try:
             preprocessed = self.preprocess(frame)
-            # Run OCR on the preprocessed frame
             results = self.reader.readtext(preprocessed, detail=1)
             plates = []
-            for (_bbox, text, confidence) in results:
+            for (bbox, text, confidence) in results:
                 cleaned = text.upper().replace(" ", "").replace(".", "")
-                plates.append((cleaned, float(confidence)))
+                # bbox is [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
+                xs = [pt[0] for pt in bbox]
+                cx = int((min(xs) + max(xs)) / 2)
+                plates.append((cleaned, float(confidence), cx))
             return plates
         except Exception:
             return []
