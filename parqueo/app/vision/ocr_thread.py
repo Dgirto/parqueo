@@ -43,6 +43,7 @@ class OCRThread(threading.Thread):
             self._scan_roi(frame, ROI_SALIDA, "SALIDA")
 
     def _scan_roi(self, frame, roi: tuple, accion: str):
+        now = time.time()
         x1, y1, x2, y2 = roi
         crop = frame[y1:y2, x1:x2]
 
