@@ -1,4 +1,5 @@
 import queue
+import threading
 import customtkinter as ctk
 
 from app.core.config import VIDEO_PATH, FPS_TARGET
@@ -17,6 +18,24 @@ from app.ui.activity_table import ActivityTable
 
 MS_PER_FRAME = max(1, int(1000 / FPS_TARGET))   # 16ms @ 60fps
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Flujo de datos (NINGUNA operación de BD corre en el hilo de Tkinter):
+#
+#  Thread 1 ─ VideoCaptureThread
+#      cv2 → display_queue  (frames para UI)
+#          → ocr_queue      (1/4 frames para OCR)
+#
+#  Thread 2 ─ OCRThread (GPU)
+#      ocr_queue → detect placa → result_queue (str: placa)
+#
+#  Thread 3 ─ daemon por placa detectada
+#      result_queue → procesar_placa() + DB reads → update_queue (dict UI)
+#
+#  Hilo Tkinter ─ _update_loop after(16ms)
+#      display_queue → VideoPanel.update_frame()
+#      update_queue  → actualiza widgets SOLO (cero BD aquí)
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class MainWindow(ctk.CTk):
     def __init__(self, db_manager: DatabaseManager, parking_logic: ParkingLogic):
@@ -34,39 +53,38 @@ class MainWindow(ctk.CTk):
         self.minsize(1280, 720)
         self.configure(fg_color=COLORS["bg_root"])
 
-        # ── Thread 1: display frames ───────────────────────────────
-        # ── Thread 2: OCR frames ──────────────────────────────────
-        # ── Thread 3 (UI): after(16) loop ─────────────────────────
+        # ── Queues ─────────────────────────────────────────────────
         self._display_queue: queue.Queue = queue.Queue(maxsize=10)
         self._ocr_queue: queue.Queue = queue.Queue(maxsize=2)
-        self._result_queue: queue.Queue = queue.Queue()
+        self._result_queue: queue.Queue = queue.Queue()    # str: placa detectada
+        self._update_queue: queue.Queue = queue.Queue()    # dict: payload UI
 
-        self._plate_detector = PlateDetector()   # inicializa GPU reader
+        self._plate_detector = PlateDetector()
 
         # ── Layout ─────────────────────────────────────────────────
         self._build_layout()
 
-        # ── Initial data ───────────────────────────────────────────
-        self._initial_load()
+        # ── Initial data (corre en background, no bloquea __init__) ─
+        threading.Thread(target=self._initial_load, daemon=True).start()
 
-        # ── Start Thread 1: video capture ─────────────────────────
+        # ── Thread 1: video capture ────────────────────────────────
         self.capture_thread = VideoCaptureThread(
             VIDEO_PATH, self._display_queue, self._ocr_queue)
         self.capture_thread.start()
 
-        # ── Start Thread 2: GPU OCR ────────────────────────────────
+        # ── Thread 2: GPU OCR ──────────────────────────────────────
         self.ocr_thread = OCRThread(
             self._plate_detector, self.logic,
             self._ocr_queue, self._result_queue)
         self.ocr_thread.start()
 
-        # ── Start Thread 3: UI loop at ~60fps ──────────────────────
+        # ── Hilo Tkinter: UI loop ──────────────────────────────────
         job = self.after(MS_PER_FRAME, self._update_loop)
         self._after_jobs.append(job)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ── Layout builder ─────────────────────────────────────────────
+    # ── Layout ─────────────────────────────────────────────────────
 
     def _build_layout(self):
         self.grid_columnconfigure(0, weight=0, minsize=200)
@@ -102,94 +120,154 @@ class MainWindow(ctk.CTk):
         self.activity_table.grid(row=2, column=1, columnspan=2,
                                  sticky="nsew", padx=(8, 8), pady=(0, 8))
 
-    # ── Initial data load ──────────────────────────────────────────
+    # ── Thread: carga inicial de datos ─────────────────────────────
 
     def _initial_load(self):
+        """Corre en daemon thread; pone payload en update_queue para que UI lo aplique."""
         try:
-            self.active_vehicles.refresh(self.db.get_vehiculos_dentro())
-            self.activity_table.refresh(self.db.get_historial(limit=50))
-            self._refresh_header_metrics()
+            payload = self._build_refresh_payload()
+            payload["tipo"] = "initial"
+            self._update_queue.put(payload)
         except Exception:
             pass
 
-    # ── Thread 3: UI update loop (~60fps) ─────────────────────────
+    # ── Thread 3: procesar placa detectada (BD) ────────────────────
+
+    def _procesar_en_background(self, placa: str):
+        """Toda lógica de BD en daemon thread. Nunca toca widgets."""
+        try:
+            result = self.logic.procesar_placa(placa)
+            accion = result.get("accion", "")
+
+            if accion not in ("ENTRADA", "SALIDA"):
+                return
+
+            # Determinar hora_entrada para DetectionCard
+            if accion == "ENTRADA":
+                hora_entrada = result.get("hora", "")
+            else:
+                tickets = self.db.get_historial(limit=1)
+                hora_entrada = tickets[0].hora_entrada if tickets else result.get("hora", "")
+
+            # Ticket para la tabla
+            nuevo_ticket = None
+            if accion == "SALIDA":
+                tickets = self.db.get_historial(limit=1)
+                nuevo_ticket = tickets[0] if tickets else None
+            elif accion == "ENTRADA":
+                activos = self.db.get_vehiculos_dentro()
+                nuevo_ticket = next((t for t in activos if t.placa == placa), None)
+
+            # Payload completo para la UI (solo datos, cero widgets)
+            payload = self._build_refresh_payload()
+            payload.update({
+                "tipo":         "deteccion",
+                "accion":       accion,
+                "placa":        placa,
+                "hora_entrada": hora_entrada,
+                "nuevo_ticket": nuevo_ticket,
+            })
+            self._update_queue.put(payload)
+
+        except Exception:
+            pass
+
+    def _build_refresh_payload(self) -> dict:
+        """Lee BD y construye el dict de estado — siempre en hilo background."""
+        dentro   = self.db.get_vehiculos_dentro()
+        historial = self.db.get_historial(limit=50)
+        cobros   = len(historial)
+        total    = sum(t.monto or 0.0 for t in historial)
+        return {
+            "dentro":    dentro,
+            "historial": historial,
+            "cobros":    cobros,
+            "total":     total,
+        }
+
+    # ── Hilo Tkinter: _update_loop (solo renderiza, cero BD) ───────
 
     def _update_loop(self):
-        # Consume one display frame → VideoPanel (nunca bloquea)
+        # Frame de video
         try:
             frame = self._display_queue.get_nowait()
             self.video_panel.update_frame(frame)
         except queue.Empty:
-            pass   # queue vacía: reschedula normalmente sin hacer nada
+            pass
 
-        # Drain all OCR results → business logic + panels
+        # Placas detectadas → lanzar Thread 3 por cada una
         while True:
             try:
-                result = self._result_queue.get_nowait()
-                self._handle_result(result)
+                placa = self._result_queue.get_nowait()
+                threading.Thread(
+                    target=self._procesar_en_background,
+                    args=(placa,),
+                    daemon=True,
+                ).start()
+            except queue.Empty:
+                break
+
+        # Payloads listos → actualizar widgets (cero BD aquí)
+        while True:
+            try:
+                payload = self._update_queue.get_nowait()
+                self._apply_payload(payload)
             except queue.Empty:
                 break
 
         job = self.after(MS_PER_FRAME, self._update_loop)
         self._after_jobs.append(job)
 
-    # ── OCR result handler ─────────────────────────────────────────
+    def _apply_payload(self, payload: dict):
+        """Único lugar donde se tocan widgets. Solo lectura de payload, cero BD."""
+        tipo = payload.get("tipo", "")
 
-    def _handle_result(self, result: dict):
-        accion = result.get("accion", "")
-        placa  = result.get("placa", "")
-        hora   = result.get("hora", "")
+        # Refresca lista vehículos y métricas en todos los casos
+        self.active_vehicles.refresh(payload.get("dentro", []))
+        dentro_n    = len(payload.get("dentro", []))
+        disponibles = max(0, 20 - dentro_n)
+        self.header.update_metrics(
+            dentro_n, disponibles,
+            payload.get("cobros", 0),
+            payload.get("total", 0.0),
+        )
 
-        if accion not in ("ENTRADA", "SALIDA"):
+        if tipo == "initial":
+            self.activity_table.refresh(payload.get("historial", []))
             return
 
-        if accion == "ENTRADA":
-            hora_entrada = hora
-        else:
-            tickets = self.db.get_historial(limit=1)
-            hora_entrada = tickets[0].hora_entrada if tickets else hora
+        if tipo == "deteccion":
+            accion       = payload.get("accion", "")
+            placa        = payload.get("placa", "")
+            hora_entrada = payload.get("hora_entrada", "")
+            nuevo_ticket = payload.get("nuevo_ticket")
 
-        self.detection_card.update_detection(placa, hora_entrada, accion)
+            self.detection_card.update_detection(placa, hora_entrada, accion)
 
-        tickets = self.db.get_historial(limit=1)
-        if accion == "SALIDA" and tickets:
-            self.activity_table.prepend_row(tickets[0])
-            self.activity_table.highlight_row(placa)
-        elif accion == "ENTRADA":
-            activos = self.db.get_vehiculos_dentro()
-            ticket_activo = next((t for t in activos if t.placa == placa), None)
-            if ticket_activo:
-                self.activity_table.prepend_row(ticket_activo)
-
-        self.active_vehicles.refresh(self.db.get_vehiculos_dentro())
-        self._refresh_header_metrics()
-
-    def _refresh_header_metrics(self):
-        try:
-            dentro_list = self.db.get_vehiculos_dentro()
-            dentro_n    = len(dentro_list)
-            disponibles = max(0, 20 - dentro_n)
-            historial   = self.db.get_historial(limit=200)
-            cobros_hoy  = len(historial)
-            total_hoy   = sum(t.monto or 0.0 for t in historial)
-            self.header.update_metrics(dentro_n, disponibles, cobros_hoy, total_hoy)
-        except Exception:
-            pass
+            if nuevo_ticket is not None:
+                self.activity_table.prepend_row(nuevo_ticket)
+                if accion == "SALIDA":
+                    self.activity_table.highlight_row(placa)
 
     # ── Manual exit ────────────────────────────────────────────────
 
     def _manual_exit(self, placa: str):
-        result = self.logic.procesar_placa(placa)
-        if result["accion"] == "SALIDA":
-            self._handle_result(result)
+        threading.Thread(
+            target=self._procesar_en_background,
+            args=(placa,),
+            daemon=True,
+        ).start()
 
-    # ── Clear BD ───────────────────────────────────────────────────
+    # ── Limpiar BD ─────────────────────────────────────────────────
 
     def _clear_bd(self):
-        self.db.clear_all_tickets()
-        self.activity_table.refresh([])
-        self.active_vehicles.refresh([])
-        self._refresh_header_metrics()
+        def _do():
+            self.db.clear_all_tickets()
+            payload = self._build_refresh_payload()
+            payload["tipo"] = "initial"
+            self._update_queue.put(payload)
+
+        threading.Thread(target=_do, daemon=True).start()
 
     # ── Navigation ─────────────────────────────────────────────────
 
