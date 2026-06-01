@@ -44,15 +44,25 @@ class OCRThread(threading.Thread):
     def _scan_roi(self, frame, roi: tuple, accion: str):
         x1, y1, x2, y2 = roi
         crop = frame[y1:y2, x1:x2]
+
+        print(f"[OCR-SCAN] {accion}  roi={roi}  crop.shape={crop.shape}  crop.size={crop.size}")
+
         if crop.size == 0:
+            print(f"[OCR-SCAN] {accion}  crop vacío, saltando")
             return
 
         try:
             candidates = self.detector.detect(crop)
-        except Exception:
+        except Exception as e:
+            print(f"[OCR-SCAN] {accion}  excepción en detect(): {e}")
             return
 
+        print(f"[OCR-SCAN] {accion}  candidates={candidates}")
+
         for text, confidence in candidates:
+            print(f"[OCR-FILTER] text={text!r}  conf={confidence:.2f}  "
+                  f"min={OCR_CONFIDENCE_MIN}  válida={self.logic.validar_formato_placa(text)}  "
+                  f"reciente={text in self._recent_plates}")
             if confidence < OCR_CONFIDENCE_MIN:
                 continue
             if not self.logic.validar_formato_placa(text):
@@ -60,6 +70,7 @@ class OCRThread(threading.Thread):
             if text in self._recent_plates:
                 continue
 
+            print(f"[OCR-EMIT] {accion}  placa={text}  conf={confidence:.2f}")
             self.result_queue.put({"placa": text, "accion": accion})
             self._recent_plates.add(text)
             if len(self._recent_plates) > 50:
