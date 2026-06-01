@@ -1,7 +1,7 @@
 import time
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageTk
 import customtkinter as ctk
 from app.core.theme import COLORS, FONTS, RADIUS
 
@@ -14,13 +14,10 @@ class VideoPanel(ctk.CTkFrame):
         kwargs.setdefault("border_color", COLORS["border_bright"])
         super().__init__(master, **kwargs)
 
-        # Fuerza expansión del frame dentro de su celda grid
-        self.grid_propagate(True)
-
-        self.current_image = None
+        self.current_image = None   # mantiene referencia para evitar GC
         self._frame_times: list[float] = []
-        self._panel_w = 640
-        self._panel_h = 480
+        self._panel_w = 0
+        self._panel_h = 0
 
         # ── Top bar ────────────────────────────────────────────────
         top_bar = ctk.CTkFrame(self, height=32, corner_radius=0,
@@ -50,24 +47,25 @@ class VideoPanel(ctk.CTkFrame):
                                          text_color=COLORS["text_secondary"])
         self._overlay_lbl.pack(side="left", padx=10)
 
-        # ── Video label (ocupa todo el espacio restante) ───────────
-        self._video_label = ctk.CTkLabel(self, text="",
-                                         fg_color="#000000",
-                                         corner_radius=0)
+        # ── Video label ────────────────────────────────────────────
+        # Usamos tk.Label (no CTkLabel) para aceptar ImageTk.PhotoImage
+        # directamente — evita la capa de conversión de CTkImage
+        import tkinter as tk
+        self._video_label = tk.Label(self, bg="#000000", bd=0,
+                                     highlightthickness=0)
         self._video_label.pack(fill="both", expand=True)
 
-        # Seguir el tamaño real del panel cuando cambia
+        # Actualizar dimensiones cuando el panel cambia de tamaño
         self.bind("<Configure>", self._on_resize)
 
         self.show_no_signal()
         self.after(800, self._blink)
 
-    # ── Resize handler ─────────────────────────────────────────────
+    # ── Resize ─────────────────────────────────────────────────────
 
     def _on_resize(self, event):
-        # Descontar top bar (32) y bottom bar (28)
-        self._panel_w = max(event.width, 320)
-        self._panel_h = max(event.height - 60, 240)
+        self._panel_w = max(event.width, 160)
+        self._panel_h = max(event.height - 60, 120)   # descontar top+bottom bar
 
     # ── public API ─────────────────────────────────────────────────
 
@@ -76,20 +74,23 @@ class VideoPanel(ctk.CTkFrame):
         self._frame_times = [t for t in self._frame_times if now - t <= 1.0]
         self._frame_times.append(now)
 
+        # Si el panel aún no tiene tamaño, leer directamente del widget
+        w = self._panel_w or max(self._video_label.winfo_width(), 320)
+        h = self._panel_h or max(self._video_label.winfo_height(), 240)
+
         try:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(rgb)
-
-            img_w, img_h = pil_img.size
-            scale = min(self._panel_w / img_w, self._panel_h / img_h)
+            img_h, img_w = frame.shape[:2]
+            scale = min(w / img_w, h / img_h)
             new_w = max(1, int(img_w * scale))
             new_h = max(1, int(img_h * scale))
 
-            # Resize en PIL (más rápido que CTkImage interno)
-            pil_resized = pil_img.resize((new_w, new_h), Image.BILINEAR)
-            new_img = ctk.CTkImage(light_image=pil_resized, size=(new_w, new_h))
-            self._video_label.configure(image=new_img, text="")
-            self.current_image = new_img   # evitar GC
+            # PIL resize + ImageTk directo (sin overhead de CTkImage)
+            pil_resized = Image.fromarray(rgb).resize((new_w, new_h),
+                                                      Image.BILINEAR)
+            photo = ImageTk.PhotoImage(image=pil_resized)
+            self._video_label.configure(image=photo)
+            self.current_image = photo   # evitar GC
 
             self._overlay_lbl.configure(
                 text=f"{img_w}×{img_h}  →  {new_w}×{new_h}  ·  OpenCV/PIL")
@@ -97,12 +98,7 @@ class VideoPanel(ctk.CTkFrame):
             pass
 
     def show_no_signal(self):
-        self._video_label.configure(
-            image=None,
-            text="📷\n\nSIN SEÑAL",
-            font=FONTS["title"],
-            text_color=COLORS["text_secondary"],
-        )
+        self._video_label.configure(image="", text="📷  SIN SEÑAL")
         self.current_image = None
         self._overlay_lbl.configure(text="Sin fuente de video")
 
