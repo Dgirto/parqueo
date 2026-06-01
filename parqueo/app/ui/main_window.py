@@ -148,10 +148,10 @@ class MainWindow(ctk.CTk):
 
     # ── Thread 3: procesar placa detectada (BD) ────────────────────
 
-    def _procesar_en_background(self, placa: str, accion_sugerida: str | None = None):
+    def _procesar_en_background(self, placa: str):
         """Toda lógica de BD en daemon thread. Nunca toca widgets."""
         try:
-            result = self.logic.procesar_placa(placa, accion_sugerida)
+            result = self.logic.procesar_placa(placa)
             accion = result.get("accion", "")
 
             if accion not in ("ENTRADA", "SALIDA"):
@@ -223,15 +223,12 @@ class MainWindow(ctk.CTk):
             pass
 
         # Placas detectadas → lanzar Thread 3 por cada una
-        # result_queue emite dict {"placa": ..., "accion": ...}
         while True:
             try:
-                item = self._result_queue.get_nowait()
-                placa  = item["placa"]
-                accion = item["accion"]
+                placa = self._result_queue.get_nowait()
                 threading.Thread(
                     target=self._procesar_en_background,
-                    args=(placa, accion),
+                    args=(placa,),
                     daemon=True,
                 ).start()
             except queue.Empty:
