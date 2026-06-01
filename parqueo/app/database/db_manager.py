@@ -106,6 +106,9 @@ class DatabaseManager:
             row = conn.execute(sql, (ticket_id,)).fetchone()
         return self._row_to_ticket(row) if row else None
 
+    def close(self):
+        pass  # connections are opened/closed per-operation; nothing to release
+
     @staticmethod
     def _row_to_ticket(row) -> Ticket:
         return Ticket(
