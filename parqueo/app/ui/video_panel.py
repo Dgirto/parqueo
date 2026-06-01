@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image, ImageTk
 import customtkinter as ctk
 from app.core.theme import COLORS, FONTS, RADIUS
-from app.core.config import ROI_ENTRADA, ROI_SALIDA
+from app.core.config import ROI_LECTURA
 
 
 class VideoPanel(ctk.CTkFrame):
@@ -121,34 +121,27 @@ class VideoPanel(ctk.CTkFrame):
     @staticmethod
     def _draw_roi_overlay(frame: np.ndarray) -> np.ndarray:
         """
-        Escala las coordenadas ROI (definidas en el frame reducido 597x336)
-        al tamaño real del frame recibido y dibuja el overlay semitransparente.
+        Dibuja la zona de lectura ROI_LECTURA como overlay amarillo semitransparente.
+        ROI_LECTURA está en coordenadas del frame original 1280x720; se escala al
+        tamaño real del frame recibido.
         """
         fh, fw = frame.shape[:2]
-        roi_w, roi_h = 597, 336   # dimensiones de referencia de las ROI en config
+        ref_w, ref_h = 1280, 720
 
-        def scale(roi):
-            x1, y1, x2, y2 = roi
-            return (
-                int(x1 * fw / roi_w), int(y1 * fh / roi_h),
-                int(x2 * fw / roi_w), int(y2 * fh / roi_h),
-            )
-
-        e = scale(ROI_ENTRADA)
-        s = scale(ROI_SALIDA)
+        x1, y1, x2, y2 = ROI_LECTURA
+        sx1 = int(x1 * fw / ref_w)
+        sy1 = int(y1 * fh / ref_h)
+        sx2 = int(x2 * fw / ref_w)
+        sy2 = int(y2 * fh / ref_h)
 
         overlay = frame.copy()
-        cv2.rectangle(overlay, (e[0], e[1]), (e[2], e[3]), (0, 200, 80), -1)
-        cv2.rectangle(overlay, (s[0], s[1]), (s[2], s[3]), (0, 60, 220), -1)
-        frame_out = cv2.addWeighted(overlay, 0.18, frame, 0.82, 0)
+        cv2.rectangle(overlay, (sx1, sy1), (sx2, sy2), (0, 220, 220), -1)
+        frame_out = cv2.addWeighted(overlay, 0.15, frame, 0.85, 0)
 
-        cv2.rectangle(frame_out, (e[0], e[1]), (e[2], e[3]), (0, 210, 90), 2)
-        cv2.putText(frame_out, "ENTRADA", (e[0] + 8, e[1] + 26),
-                    cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 230, 100), 2, cv2.LINE_AA)
-
-        cv2.rectangle(frame_out, (s[0], s[1]), (s[2], s[3]), (60, 60, 230), 2)
-        cv2.putText(frame_out, "SALIDA", (s[0] + 8, s[1] + 26),
-                    cv2.FONT_HERSHEY_DUPLEX, 0.75, (80, 80, 245), 2, cv2.LINE_AA)
+        cv2.rectangle(frame_out, (sx1, sy1), (sx2, sy2), (0, 230, 230), 2)
+        cv2.putText(frame_out, "ZONA DE LECTURA",
+                    (sx1 + 8, sy1 + 26),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.65, (0, 240, 240), 2, cv2.LINE_AA)
 
         return frame_out
 

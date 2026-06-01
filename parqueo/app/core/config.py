@@ -12,8 +12,9 @@ OCR_INTERVAL_SECONDS = 0.5
 OCR_CONFIDENCE_MIN = 0.6
 PRECIO_HORA_DEFAULT = 5.00
 
-# Zonas ROI para detección direccional (x1, y1, x2, y2)
-# Video 1280x720 escalado a 597x336 en el panel.
-# Autos que ENTRAN vienen por la derecha, los que SALEN por la izquierda.
-ROI_ENTRADA = (298, 0, 597, 336)   # mitad derecha del frame escalado
-ROI_SALIDA  = (0,   0, 298, 336)   # mitad izquierda del frame escalado
+# Zona ROI de lectura (x1, y1, x2, y2) en coordenadas del frame original 1280x720.
+# Zona central donde el auto se detiene frente a la barrera.
+# La dirección se infiere comparando la posición X entre frames consecutivos:
+#   x_actual < x_anterior  →  moviendo izquierda  →  ENTRADA
+#   x_actual > x_anterior  →  moviendo derecha    →  SALIDA
+ROI_LECTURA = (200, 200, 800, 420)
