@@ -29,8 +29,8 @@ C_GREEN     = (0,  200,  60)
 # Posiciones clave
 BARRIER_X   = 780          # x de la barrera vertical pivot
 BARRIER_Y   = 360          # y del pivot de la barrera
-STOP_X_L    = 220          # auto de SALIDA viene desde izq, pasa por zona central
-STOP_X_R    = 980          # auto de ENTRADA viene desde der, pasa por zona central
+STOP_X_L    = 620          # auto proveniente de izq se detiene aquí
+STOP_X_R    = 660          # auto proveniente de der se detiene aquí
 CAR_Y       = 400          # y centro del auto
 CAR_W       = 190          # ancho del cuerpo
 CAR_H       = 90           # alto del cuerpo
