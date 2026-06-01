@@ -21,7 +21,8 @@ class OCRThread(threading.Thread):
         self.result_queue = result_queue    # emite dict {"placa": ..., "accion": ...}
         self._stop_event = threading.Event()
         self._last_ocr_time = 0.0
-        self._recent_plates: set = set()    # debounce global
+        self._recent_plates: dict = {}      # {placa: last_emit_timestamp}
+        self._debounce_secs = 15.0
 
     def run(self):
         while not self._stop_event.is_set():
@@ -60,21 +61,21 @@ class OCRThread(threading.Thread):
         print(f"[OCR-SCAN] {accion}  candidates={candidates}")
 
         for text, confidence in candidates:
+            last_t = self._recent_plates.get(text, 0.0)
+            in_cooldown = (now - last_t) < self._debounce_secs
             print(f"[OCR-FILTER] text={text!r}  conf={confidence:.2f}  "
                   f"min={OCR_CONFIDENCE_MIN}  válida={self.logic.validar_formato_placa(text)}  "
-                  f"reciente={text in self._recent_plates}")
+                  f"cooldown={in_cooldown}  age={now-last_t:.1f}s")
             if confidence < OCR_CONFIDENCE_MIN:
                 continue
             if not self.logic.validar_formato_placa(text):
                 continue
-            if text in self._recent_plates:
+            if in_cooldown:
                 continue
 
             print(f"[OCR-EMIT] {accion}  placa={text}  conf={confidence:.2f}")
             self.result_queue.put({"placa": text, "accion": accion})
-            self._recent_plates.add(text)
-            if len(self._recent_plates) > 50:
-                self._recent_plates.clear()
+            self._recent_plates[text] = now
 
     def stop(self):
         self._stop_event.set()
