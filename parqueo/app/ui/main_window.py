@@ -1,5 +1,6 @@
 import queue
 import threading
+import time
 import customtkinter as ctk
 
 from app.core.config import VIDEO_PATH, FPS_TARGET
@@ -59,24 +60,23 @@ class MainWindow(ctk.CTk):
         self._result_queue: queue.Queue = queue.Queue()    # str: placa detectada
         self._update_queue: queue.Queue = queue.Queue()    # dict: payload UI
 
-        self._plate_detector = PlateDetector()
+        # Contadores de diagnóstico
+        self._loop_count = 0
+        self._loop_last_print = time.perf_counter()
 
         # ── Layout ─────────────────────────────────────────────────
         self._build_layout()
 
-        # ── Initial data (corre en background, no bloquea __init__) ─
-        threading.Thread(target=self._initial_load, daemon=True).start()
-
-        # ── Thread 1: video capture ────────────────────────────────
+        # ── Thread 1: video capture (arranca inmediatamente) ───────
         self.capture_thread = VideoCaptureThread(
             VIDEO_PATH, self._display_queue, self._ocr_queue)
         self.capture_thread.start()
 
-        # ── Thread 2: GPU OCR ──────────────────────────────────────
-        self.ocr_thread = OCRThread(
-            self._plate_detector, self.logic,
-            self._ocr_queue, self._result_queue)
-        self.ocr_thread.start()
+        # ── PlateDetector + OCRThread en background (EasyOCR es lento al init) ─
+        threading.Thread(target=self._init_ocr, daemon=True).start()
+
+        # ── Initial data ───────────────────────────────────────────
+        threading.Thread(target=self._initial_load, daemon=True).start()
 
         # ── Hilo Tkinter: UI loop ──────────────────────────────────
         job = self.after(MS_PER_FRAME, self._update_loop)
@@ -119,6 +119,20 @@ class MainWindow(ctk.CTk):
         self.activity_table = ActivityTable(self, on_clear=self._clear_bd)
         self.activity_table.grid(row=2, column=1, columnspan=2,
                                  sticky="nsew", padx=(8, 8), pady=(0, 8))
+
+    # ── OCR init en background ────────────────────────────────────
+
+    def _init_ocr(self):
+        """Inicializa EasyOCR (lento) y arranca OCRThread en background."""
+        print("[OCR] Cargando modelo EasyOCR…")
+        t0 = time.perf_counter()
+        plate_detector = PlateDetector()
+        print(f"[OCR] Modelo listo en {time.perf_counter()-t0:.1f}s")
+
+        self.ocr_thread = OCRThread(
+            plate_detector, self.logic,
+            self._ocr_queue, self._result_queue)
+        self.ocr_thread.start()
 
     # ── Thread: carga inicial de datos ─────────────────────────────
 
@@ -188,6 +202,18 @@ class MainWindow(ctk.CTk):
     # ── Hilo Tkinter: _update_loop (solo renderiza, cero BD) ───────
 
     def _update_loop(self):
+        # ── Diagnóstico: imprime 1 vez por segundo ─────────────────
+        self._loop_count += 1
+        now = time.perf_counter()
+        if now - self._loop_last_print >= 1.0:
+            dq = self._display_queue.qsize()
+            print(f"[UI] loops/s={self._loop_count:3d}  "
+                  f"display_q={dq}  "
+                  f"result_q={self._result_queue.qsize()}  "
+                  f"update_q={self._update_queue.qsize()}")
+            self._loop_count = 0
+            self._loop_last_print = now
+
         # Frame de video
         try:
             frame = self._display_queue.get_nowait()
@@ -282,7 +308,7 @@ class MainWindow(ctk.CTk):
                 self.after_cancel(job)
             except Exception:
                 pass
-        if hasattr(self, "ocr_thread"):
+        if hasattr(self, "ocr_thread") and self.ocr_thread.is_alive():
             self.ocr_thread.stop()
             self.ocr_thread.join(timeout=2.0)
         if hasattr(self, "capture_thread"):
