@@ -17,4 +17,4 @@ PRECIO_HORA_DEFAULT = 5.00
 # La dirección se infiere comparando la posición X entre frames consecutivos:
 #   x_actual < x_anterior  →  moviendo izquierda  →  ENTRADA
 #   x_actual > x_anterior  →  moviendo derecha    →  SALIDA
-ROI_LECTURA = (200, 200, 800, 420)
+ROI_LECTURA = (200, 280, 800, 480)
