@@ -222,3 +222,4 @@ parqueo/data/*.db
 parqueo/data/*.db-journal
 parqueo/data/*.db-shm
 parqueo/data/*.db-wal
+debug_crop.png
