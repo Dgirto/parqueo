@@ -34,12 +34,13 @@ class PlateDetector:
 
         try:
             preprocessed = self.preprocess(frame)
-            # Run OCR on the preprocessed frame
             results = self.reader.readtext(preprocessed, detail=1)
+            print(f"[OCR-RAW] readtext devolvió {len(results)} resultado(s): {results}")
             plates = []
             for (_bbox, text, confidence) in results:
                 cleaned = text.upper().replace(" ", "").replace(".", "")
                 plates.append((cleaned, float(confidence)))
             return plates
-        except Exception:
+        except Exception as e:
+            print(f"[OCR-RAW] excepción en detect(): {e}")
             return []
