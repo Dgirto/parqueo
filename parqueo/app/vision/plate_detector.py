@@ -12,7 +12,7 @@ except ImportError:
 class PlateDetector:
     def __init__(self):
         if _EASYOCR_AVAILABLE:
-            self.reader = easyocr.Reader(["es", "en"], gpu=False, verbose=False)
+            self.reader = easyocr.Reader(["es", "en"], gpu=True, verbose=False)
         else:
             self.reader = None
 
