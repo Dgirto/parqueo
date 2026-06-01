@@ -120,26 +120,34 @@ class VideoPanel(ctk.CTkFrame):
 
     @staticmethod
     def _draw_roi_overlay(frame: np.ndarray) -> np.ndarray:
+        """
+        Escala las coordenadas ROI (definidas en el frame reducido 597x336)
+        al tamaño real del frame recibido y dibuja el overlay semitransparente.
+        """
+        fh, fw = frame.shape[:2]
+        roi_w, roi_h = 597, 336   # dimensiones de referencia de las ROI en config
+
+        def scale(roi):
+            x1, y1, x2, y2 = roi
+            return (
+                int(x1 * fw / roi_w), int(y1 * fh / roi_h),
+                int(x2 * fw / roi_w), int(y2 * fh / roi_h),
+            )
+
+        e = scale(ROI_ENTRADA)
+        s = scale(ROI_SALIDA)
+
         overlay = frame.copy()
-
-        # ROI ENTRADA — verde semitransparente
-        x1, y1, x2, y2 = ROI_ENTRADA
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 200, 80), -1)
-
-        # ROI SALIDA — rojo semitransparente
-        x1, y1, x2, y2 = ROI_SALIDA
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 60, 220), -1)
-
+        cv2.rectangle(overlay, (e[0], e[1]), (e[2], e[3]), (0, 200, 80), -1)
+        cv2.rectangle(overlay, (s[0], s[1]), (s[2], s[3]), (0, 60, 220), -1)
         frame_out = cv2.addWeighted(overlay, 0.18, frame, 0.82, 0)
 
-        x1e, y1e, x2e, y2e = ROI_ENTRADA
-        cv2.rectangle(frame_out, (x1e, y1e), (x2e, y2e), (0, 210, 90), 2)
-        cv2.putText(frame_out, "ENTRADA", (x1e + 8, y1e + 26),
+        cv2.rectangle(frame_out, (e[0], e[1]), (e[2], e[3]), (0, 210, 90), 2)
+        cv2.putText(frame_out, "ENTRADA", (e[0] + 8, e[1] + 26),
                     cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 230, 100), 2, cv2.LINE_AA)
 
-        x1s, y1s, x2s, y2s = ROI_SALIDA
-        cv2.rectangle(frame_out, (x1s, y1s), (x2s, y2s), (60, 60, 230), 2)
-        cv2.putText(frame_out, "SALIDA", (x1s + 8, y1s + 26),
+        cv2.rectangle(frame_out, (s[0], s[1]), (s[2], s[3]), (60, 60, 230), 2)
+        cv2.putText(frame_out, "SALIDA", (s[0] + 8, s[1] + 26),
                     cv2.FONT_HERSHEY_DUPLEX, 0.75, (80, 80, 245), 2, cv2.LINE_AA)
 
         return frame_out
