@@ -114,7 +114,8 @@ class MainWindow(ctk.CTk):
                                             on_manual_exit=self._manual_exit)
         self.detection_card.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
 
-        self.active_vehicles = ActiveVehicles(right_col)
+        self.active_vehicles = ActiveVehicles(right_col,
+                                              on_manual_exit=self._manual_exit)
         self.active_vehicles.grid(row=1, column=0, sticky="nsew")
 
         self.activity_table = ActivityTable(self, on_clear=self._clear_bd)

@@ -8,10 +8,12 @@ _TIPO_ICON = {"MOTO": "🏍", "AUTO": "🚗", "CAMION": "🚛"}
 
 
 class ActiveVehicles(ctk.CTkFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, on_manual_exit=None, **kwargs):
         kwargs.setdefault("fg_color", COLORS["bg_card"])
         kwargs.setdefault("corner_radius", RADIUS["card"])
         super().__init__(master, **kwargs)
+
+        self._on_manual_exit = on_manual_exit  # callback(placa)
 
         self._after_jobs = []
         self._rows: list[dict] = []   # [{placa, hora_entrada, tipo, widgets}]
@@ -90,10 +92,22 @@ class ActiveVehicles(ctk.CTkFrame):
         time_lbl.pack(side="left")
 
         monto = self._calc_monto(hora_entrada)
+        if self._on_manual_exit:
+            btn = ctk.CTkButton(
+                frame, text="✕", width=28, height=28,
+                corner_radius=6,
+                fg_color=COLORS["red"],
+                hover_color="#8B0000",
+                text_color="#FFFFFF",
+                font=FONTS["small"],
+                command=lambda p=placa: self._on_manual_exit(p),
+            )
+            btn.pack(side="right", padx=(4, 8))
+
         monto_lbl = ctk.CTkLabel(frame, text=f"S/.{monto:.2f}",
                                   font=FONTS["body_bold"],
                                   text_color=COLORS["green"])
-        monto_lbl.pack(side="right", padx=10)
+        monto_lbl.pack(side="right", padx=(0, 4))
 
         self._rows.append({
             "placa": placa,
