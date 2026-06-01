@@ -3,7 +3,7 @@ import threading
 import time
 import customtkinter as ctk
 
-from app.core.config import VIDEO_PATH, FPS_TARGET
+from app.core.config import VIDEO_PATH
 from app.core.theme import COLORS
 from app.database.db_manager import DatabaseManager
 from app.core.parking_logic import ParkingLogic
@@ -63,6 +63,8 @@ class MainWindow(ctk.CTk):
         # Contadores de diagnóstico
         self._loop_count = 0
         self._loop_last_print = time.perf_counter()
+        # Solo guardamos el job ID actual del loop (no acumulamos)
+        self._loop_job = None
 
         # ── Layout ─────────────────────────────────────────────────
         self._build_layout()
@@ -79,8 +81,7 @@ class MainWindow(ctk.CTk):
         threading.Thread(target=self._initial_load, daemon=True).start()
 
         # ── Hilo Tkinter: UI loop ──────────────────────────────────
-        job = self.after(MS_PER_FRAME, self._update_loop)
-        self._after_jobs.append(job)
+        self._loop_job = self.after(MS_PER_FRAME, self._update_loop)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -241,8 +242,7 @@ class MainWindow(ctk.CTk):
             except queue.Empty:
                 break
 
-        job = self.after(MS_PER_FRAME, self._update_loop)
-        self._after_jobs.append(job)
+        self._loop_job = self.after(MS_PER_FRAME, self._update_loop)
 
     def _apply_payload(self, payload: dict):
         """Único lugar donde se tocan widgets. Solo lectura de payload, cero BD."""
@@ -303,9 +303,9 @@ class MainWindow(ctk.CTk):
     # ── Shutdown ───────────────────────────────────────────────────
 
     def _on_close(self):
-        for job in self._after_jobs:
+        if self._loop_job:
             try:
-                self.after_cancel(job)
+                self.after_cancel(self._loop_job)
             except Exception:
                 pass
         if hasattr(self, "ocr_thread") and self.ocr_thread.is_alive():
