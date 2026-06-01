@@ -16,7 +16,7 @@ from app.ui.detection_card import DetectionCard
 from app.ui.active_vehicles import ActiveVehicles
 from app.ui.activity_table import ActivityTable
 
-MS_PER_FRAME = max(1, int(1000 / FPS_TARGET))   # 16ms @ 60fps
+MS_PER_FRAME = 33   # ~30fps para sincronizar con el video nativo
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Flujo de datos (NINGUNA operación de BD corre en el hilo de Tkinter):

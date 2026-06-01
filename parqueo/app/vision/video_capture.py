@@ -3,12 +3,9 @@ import queue
 import time
 import cv2
 
-TARGET_FPS = 30
-_FRAME_INTERVAL = 1.0 / TARGET_FPS   # ~0.0333s entre frames
-
 
 class VideoCaptureThread(threading.Thread):
-    """Thread 1 — captura a ≤30fps reales y distribuye a display_queue y ocr_queue."""
+    """Thread 1 — captura a la velocidad nativa del video y distribuye frames."""
 
     def __init__(self, video_path: str,
                  display_queue: queue.Queue,
@@ -24,10 +21,15 @@ class VideoCaptureThread(threading.Thread):
         if not cap.isOpened():
             cap = cv2.VideoCapture(0)
 
+        # Leer FPS nativo del archivo (30.0 para test.mp4)
+        native_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_duration = 1.0 / native_fps
+
         frame_count = 0
-        last_frame_time = time.time()
 
         while not self._stop_event.is_set():
+            t_start = time.perf_counter()
+
             ret, frame = cap.read()
             if not ret:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -38,21 +40,19 @@ class VideoCaptureThread(threading.Thread):
 
             frame_count += 1
 
-            # ── Limitar a TARGET_FPS reales ────────────────────────
-            now = time.time()
-            elapsed = now - last_frame_time
-            sleep_needed = _FRAME_INTERVAL - elapsed
-            if sleep_needed > 0:
-                time.sleep(sleep_needed)
-            last_frame_time = time.time()
-
-            # ── Display queue (maxsize=10): nunca bloquear ─────────
+            # ── Display queue: todos los frames ───────────────────
             if not self.display_queue.full():
                 self.display_queue.put_nowait(frame)
 
-            # ── OCR queue (maxsize=2): 1 de cada 4 frames ─────────
+            # ── OCR queue: 1 de cada 4 frames ─────────────────────
             if frame_count % 4 == 0 and not self.ocr_queue.full():
                 self.ocr_queue.put_nowait(frame)
+
+            # ── Sleep exacto para respetar el FPS nativo ──────────
+            elapsed = time.perf_counter() - t_start
+            sleep_time = frame_duration - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
         cap.release()
 
