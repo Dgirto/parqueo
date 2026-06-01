@@ -44,12 +44,8 @@ class ActiveVehicles(ctk.CTkFrame):
         self._rows.clear()
 
         for i, ticket in enumerate(vehiculos):
-            placa = ticket.placa if hasattr(ticket, "placa") else ticket.get("placa", "")
-            hora_entrada = (ticket.hora_entrada
-                            if hasattr(ticket, "hora_entrada")
-                            else ticket.get("hora_entrada", ""))
-            tipo = (ticket.tipo if hasattr(ticket, "tipo") else ticket.get("tipo", "AUTO"))
-            self._add_row(placa, hora_entrada, tipo, i)
+            self._add_row(ticket.placa, ticket.hora_entrada,
+                          getattr(ticket, "tipo", "AUTO"), i)
 
         self._count_badge.configure(text=f" {len(vehiculos)} ")
         self._schedule_time_refresh()
