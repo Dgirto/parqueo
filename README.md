@@ -43,12 +43,11 @@ pip install -r requirements.txt
 
 ## Configuración
 
-Antes de ejecutar la app, cambia `VIDEO_PATH` en `app/core/config.py` por la ruta completa de tu video. Para usar el video de prueba, apunta a `assets/videos/test.mp4`.
-
-En ese mismo archivo también puedes ajustar:
+La app usa por defecto el video de prueba `assets/videos/test.mp4`. Puedes ajustar estos valores en `app/core/config.py`:
 
 | Variable | Qué controla |
 |---|---|
+| `VIDEO_PATH` | Video que procesa la app |
 | `OCR_INTERVAL_SECONDS` | Tiempo entre lecturas de OCR |
 | `OCR_CONFIDENCE_MIN` | Confianza mínima para aceptar una lectura |
 | `ROI_ENTRADA` y `ROI_SALIDA` | Zonas del video para entradas y salidas |
