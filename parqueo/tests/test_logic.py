@@ -23,6 +23,22 @@ def test_validar_placa_valida(logic):
     assert logic.validar_formato_placa("ABC123") is True
 
 
+def test_misma_placa_sin_guion_es_el_mismo_vehiculo(logic):
+    assert logic.procesar_placa("XYZ-456", "ENTRADA")["accion"] == "ENTRADA"
+    resultado = logic.procesar_placa("XYZ456", "ENTRADA")
+    assert resultado["accion"] == "YA_DENTRO"
+    assert resultado["placa"] == "XYZ-456"
+
+
+def test_validar_placa_peruana_mixta(logic):
+    assert logic.validar_formato_placa("A1B-234") is True
+    assert logic.validar_formato_placa("B7K123") is True
+
+
+def test_validar_placa_sin_letras(logic):
+    assert logic.validar_formato_placa("123-456") is False
+
+
 def test_validar_placa_invalida(logic):
     assert logic.validar_formato_placa("AB-123") is False
     assert logic.validar_formato_placa("ABCD-123") is False

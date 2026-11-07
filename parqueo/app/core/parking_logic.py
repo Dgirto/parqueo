@@ -5,7 +5,14 @@ from typing import Dict, Any
 from app.database.db_manager import DatabaseManager
 
 
-PLATE_PATTERN = re.compile(r'^[A-Z]{3}-?\d{3}$')
+# Tres caracteres (con al menos una letra) y tres dígitos: ABC-123, A1B-234.
+PLATE_PATTERN = re.compile(r'^(?=[A-Z0-9]{0,2}[A-Z])[A-Z0-9]{3}-?\d{3}$')
+
+
+def normalizar_placa(texto: str) -> str:
+    """Una misma placa siempre se guarda igual: XYZ456 y xyz-456 son XYZ-456."""
+    limpio = texto.upper().strip().replace("-", "")
+    return f"{limpio[:3]}-{limpio[3:]}" if len(limpio) == 6 else texto.upper().strip()
 
 
 class ParkingLogic:
@@ -20,7 +27,7 @@ class ParkingLogic:
         que la operación tenga sentido (no registrar doble entrada, etc.).
         Si no se provee, cae al comportamiento original basado en BD.
         """
-        placa = placa.upper().strip()
+        placa = normalizar_placa(placa)
         hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if not self.validar_formato_placa(placa):

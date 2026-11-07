@@ -229,3 +229,10 @@ debug_salida_crop.png
 debug_salida_full.png
 diag_*.png
 diag_clahe.png
+
+# SmartPark
+parqueo/assets/videos/*.mp4
+parqueo/data/*.db-*
+web/node_modules/
+parqueo/web/node_modules/
+parqueo/web/dist/

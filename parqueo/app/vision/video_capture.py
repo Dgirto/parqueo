@@ -4,6 +4,18 @@ import time
 import cv2
 
 
+def poner_ultimo(cola: queue.Queue, item) -> None:
+    """Deja solo el dato más reciente: el OCR es lento y no debe analizar imágenes viejas."""
+    try:
+        cola.get_nowait()
+    except queue.Empty:
+        pass
+    try:
+        cola.put_nowait(item)
+    except queue.Full:
+        pass
+
+
 class VideoCaptureThread(threading.Thread):
     """Thread 1 — captura a la velocidad nativa del video y distribuye frames."""
 
@@ -45,8 +57,8 @@ class VideoCaptureThread(threading.Thread):
                 self.display_queue.put_nowait(frame)
 
             # ── OCR queue: 1 de cada 4 frames ─────────────────────
-            if frame_count % 4 == 0 and not self.ocr_queue.full():
-                self.ocr_queue.put_nowait(frame)
+            if frame_count % 4 == 0:
+                poner_ultimo(self.ocr_queue, (frame, time.monotonic(), frame_count * frame_duration))
 
             # ── Sleep exacto para respetar el FPS nativo ──────────
             elapsed = time.perf_counter() - t_start

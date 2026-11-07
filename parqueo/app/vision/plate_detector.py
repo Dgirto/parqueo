@@ -1,7 +1,9 @@
+import logging
 import re
+from typing import List, Tuple
+
 import cv2
 import numpy as np
-from typing import List, Tuple
 
 try:
     import easyocr
@@ -9,11 +11,23 @@ try:
 except ImportError:
     _EASYOCR_AVAILABLE = False
 
+logger = logging.getLogger(__name__)
+
+CARACTERES_PLACA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+
+
+def _hay_gpu() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
 
 class PlateDetector:
     def __init__(self):
         if _EASYOCR_AVAILABLE:
-            self.reader = easyocr.Reader(["es", "en"], gpu=True, verbose=False)
+            self.reader = easyocr.Reader(["es", "en"], gpu=_hay_gpu(), verbose=False)
         else:
             self.reader = None
 
@@ -28,13 +42,12 @@ class PlateDetector:
 
         try:
             preprocessed = self.preprocess(frame)
-            results = self.reader.readtext(preprocessed, detail=1)
-            print(f"[OCR-RAW] readtext devolvió {len(results)} resultado(s): {results}")
+            results = self.reader.readtext(preprocessed, detail=1, allowlist=CARACTERES_PLACA)
             plates = []
             for (_bbox, text, confidence) in results:
                 cleaned = re.sub(r'[^A-Z0-9-]', '', text.upper())
                 plates.append((cleaned, float(confidence)))
             return plates
-        except Exception as e:
-            print(f"[OCR-RAW] excepción en detect(): {e}")
+        except Exception:
+            logger.exception("Falló la lectura OCR")
             return []

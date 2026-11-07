@@ -25,8 +25,17 @@ CREATE TABLE IF NOT EXISTS tickets (
     FOREIGN KEY (tarifa_id) REFERENCES tarifas(id)
 );
 
+CREATE TABLE IF NOT EXISTS ajustes (
+    clave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_entrada ON tickets(hora_entrada);
+
 CREATE INDEX IF NOT EXISTS idx_tickets_placa_activo
     ON tickets(placa, estado);
 
 INSERT OR IGNORE INTO tarifas (id, nombre, precio_hora)
     VALUES (1, 'Tarifa General', 5.00);
+
+INSERT OR IGNORE INTO ajustes (clave, valor) VALUES ('capacidad', '20');

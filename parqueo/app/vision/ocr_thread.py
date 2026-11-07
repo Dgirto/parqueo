@@ -1,14 +1,42 @@
-import threading
+import logging
 import queue
+import threading
 import time
 
-from app.core.config import OCR_INTERVAL_SECONDS, OCR_CONFIDENCE_MIN, ROI_ENTRADA, ROI_SALIDA
+import cv2
+import numpy as np
+
+from app.core.config import OCR_CONFIDENCE_MIN, OCR_INTERVAL_SECONDS, ROI_ENTRADA, ROI_SALIDA
+from app.core.parking_logic import ParkingLogic, normalizar_placa
 from app.vision.plate_detector import PlateDetector
-from app.core.parking_logic import ParkingLogic
+
+logger = logging.getLogger(__name__)
+
+# Parte de la zona que debe cambiar frente al fondo para gastar una lectura de OCR.
+PRESENCIA_MINIMA = 0.04
+
+
+class DetectorPresencia:
+    """Compara la zona con su fondo aprendido para saber si hay un vehículo."""
+
+    def __init__(self):
+        self._fondo = None
+
+    def hay_vehiculo(self, recorte: np.ndarray) -> bool:
+        reducido = cv2.resize(recorte, (160, 100), interpolation=cv2.INTER_AREA)
+        gris = cv2.GaussianBlur(cv2.cvtColor(reducido, cv2.COLOR_BGR2GRAY), (5, 5), 0).astype(np.float32)
+        if self._fondo is None:
+            self._fondo = gris
+            return True
+        cambio = np.abs(gris - self._fondo) > 22
+        presente = float(cambio.mean()) > PRESENCIA_MINIMA
+        # El fondo solo aprende donde no cambió, así un auto detenido no se vuelve fondo.
+        self._fondo = np.where(cambio, self._fondo, self._fondo * 0.9 + gris * 0.1)
+        return presente
 
 
 class OCRThread(threading.Thread):
-    """Thread 2 — EasyOCR con detección por ROI direccional. Nunca toca BD."""
+    """Thread 2: EasyOCR con detección por ROI direccional. Nunca toca la BD."""
 
     def __init__(self, plate_detector: PlateDetector,
                  parking_logic: ParkingLogic,
@@ -17,17 +45,18 @@ class OCRThread(threading.Thread):
         super().__init__(daemon=True)
         self.detector = plate_detector
         self.logic = parking_logic          # solo para validar_formato_placa
-        self.ocr_queue = ocr_queue
-        self.result_queue = result_queue    # emite dict {"placa": ..., "accion": ...}
+        self.ocr_queue = ocr_queue          # (frame, instante de captura, segundo del video)
+        self.result_queue = result_queue    # emite dict {"placa", "accion", "confianza", ...}
         self._stop_event = threading.Event()
         self._last_ocr_time = 0.0
         self._recent_plates: dict = {}      # {placa: last_emit_timestamp}
         self._debounce_secs = 15.0
+        self._presencia = {"ENTRADA": DetectorPresencia(), "SALIDA": DetectorPresencia()}
 
     def run(self):
         while not self._stop_event.is_set():
             try:
-                frame = self.ocr_queue.get(timeout=0.1)
+                frame, capturado, segundo = self.ocr_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
@@ -36,46 +65,36 @@ class OCRThread(threading.Thread):
                 continue
             self._last_ocr_time = now
 
-            # ── Buscar en ROI_ENTRADA ──────────────────────────────
-            self._scan_roi(frame, ROI_ENTRADA, "ENTRADA")
+            self._scan_roi(frame, ROI_ENTRADA, "ENTRADA", capturado, segundo)
+            self._scan_roi(frame, ROI_SALIDA, "SALIDA", capturado, segundo)
 
-            # ── Buscar en ROI_SALIDA ───────────────────────────────
-            self._scan_roi(frame, ROI_SALIDA, "SALIDA")
-
-    def _scan_roi(self, frame, roi: tuple, accion: str):
-        now = time.time()
+    def _scan_roi(self, frame, roi: tuple, accion: str, capturado: float, segundo: float):
         x1, y1, x2, y2 = roi
         crop = frame[y1:y2, x1:x2]
-
-        print(f"[OCR-SCAN] {accion}  roi={roi}  crop.shape={crop.shape}  crop.size={crop.size}")
-
-        if crop.size == 0:
-            print(f"[OCR-SCAN] {accion}  crop vacío, saltando")
+        if crop.size == 0 or not self._presencia[accion].hay_vehiculo(crop):
             return
 
         try:
             candidates = self.detector.detect(crop)
-        except Exception as e:
-            print(f"[OCR-SCAN] {accion}  excepción en detect(): {e}")
+        except Exception:
+            logger.exception("Falló la detección en %s", accion)
             return
 
-        print(f"[OCR-SCAN] {accion}  candidates={candidates}")
-
+        now = time.time()
         for text, confidence in candidates:
-            last_t = self._recent_plates.get(text, 0.0)
-            in_cooldown = (now - last_t) < self._debounce_secs
-            print(f"[OCR-FILTER] text={text!r}  conf={confidence:.2f}  "
-                  f"min={OCR_CONFIDENCE_MIN}  válida={self.logic.validar_formato_placa(text)}  "
-                  f"cooldown={in_cooldown}  age={now-last_t:.1f}s")
             if confidence < OCR_CONFIDENCE_MIN:
                 continue
             if not self.logic.validar_formato_placa(text):
                 continue
-            if in_cooldown:
+            text = normalizar_placa(text)
+            if (now - self._recent_plates.get(text, 0.0)) < self._debounce_secs:
                 continue
 
-            print(f"[OCR-EMIT] {accion}  placa={text}  conf={confidence:.2f}")
-            self.result_queue.put({"placa": text, "accion": accion})
+            latencia = time.monotonic() - capturado
+            logger.info("%s placa=%s confianza=%.2f segundo=%.1f latencia=%.1f",
+                        accion, text, confidence, segundo, latencia)
+            self.result_queue.put({"placa": text, "accion": accion, "confianza": confidence,
+                                   "latencia": round(latencia, 2)})
             self._recent_plates[text] = now
 
     def stop(self):
